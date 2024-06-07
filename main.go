@@ -29,7 +29,7 @@ var (
 func main() {
 	flag.Parse()
 	if flag.NArg() == 0 {
-		_, _ = fmt.Fprintf(os.Stderr, "usage: gocmt [flags] [path ...]\n")
+		_, _ = fmt.Fprintf(os.Stderr, "usage: goswagtags [flags] [path ...]\n")
 		flag.PrintDefaults()
 		return
 	}
