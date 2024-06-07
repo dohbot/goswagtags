@@ -1,0 +1,27 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+.DS_Store
+bin/
+
+# Output files
+*.out
+*.log
+
+# IDE files
+.idea/*
+!.idea/icon.png
+
+# Dependency directories (remove the comment below to include it)
+vendor/
+
+# Test files
+*.test
+cmd/test/
+test/
+
+# Insecure files
+.env.local
