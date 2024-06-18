@@ -80,7 +80,6 @@ func process(path string, inPlace bool) (err error) {
 
 	if len(file.Comments) == 0 {
 		file.Comments = []*ast.CommentGroup{{List: []*ast.Comment{{Slash: -1, Text: "//"}}}}
-		defer func() { file.Comments = file.Comments[1:] }()
 	}
 	cmtMap := ast.NewCommentMap(set, file, file.Comments)
 	skipped := make(map[ast.Node]bool)
@@ -97,6 +96,10 @@ func process(path string, inPlace bool) (err error) {
 	})
 
 	file.Comments = cmtMap.Filter(file).Comments()
+
+	if file.Comments[0].Pos() == -1 {
+		file.Comments = file.Comments[1:]
+	}
 
 	var buf bytes.Buffer
 	if err = format.Node(&buf, set, file); err != nil {
