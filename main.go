@@ -78,6 +78,10 @@ func process(path string, inPlace bool) (err error) {
 		return
 	}
 
+	if len(file.Comments) == 0 {
+		file.Comments = []*ast.CommentGroup{{List: []*ast.Comment{{Slash: -1, Text: "//"}}}}
+		defer func() { file.Comments = file.Comments[1:] }()
+	}
 	cmtMap := ast.NewCommentMap(set, file, file.Comments)
 	skipped := make(map[ast.Node]bool)
 
@@ -126,6 +130,9 @@ func applyStructNameTag(decl *ast.GenDecl, skipped map[ast.Node]bool, cmtMap ast
 	}
 
 	addNameTag(decl, spec)
+	if cmtMap == nil {
+		fmt.Println(cmtMap, decl.Doc.Text())
+	}
 	cmtMap[decl] = updateComment(cmtMap[decl], decl.Doc)
 }
 
