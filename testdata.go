@@ -41,3 +41,9 @@ type GetServiceRes struct {
 	ModifiedAt  *time.Time `json:"modifiedAt" xml:"modifiedAt" form:"modifiedAt"`
 	Enabled     bool       `json:"enabled" xml:"enabled" form:"enabled"`
 } //
+
+func Function() {
+	type request struct {
+		Services string
+	} //@name FunctionRequest1
+}

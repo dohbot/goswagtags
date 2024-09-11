@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -12,7 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
+
+	"github.com/iancoleman/strcase"
 )
 
 var (
@@ -28,78 +32,82 @@ var (
 
 func main() {
 	flag.Parse()
+
 	if flag.NArg() == 0 {
 		_, _ = fmt.Fprintf(os.Stderr, "usage: goswagtags [flags] [path ...]\n")
 		flag.PrintDefaults()
 		return
 	}
 
+	skipExp := regexp.MustCompile(`(^\.+)[^/]*|(_test\.go$)|(^.*/vender/.*$)`)
 	for i := 0; i < flag.NArg(); i++ {
 		path := flag.Arg(i)
-		switch fi, err := os.Stat(path); {
-		case err != nil:
-			scanner.PrintError(os.Stderr, err)
-		case fi.IsDir():
-			if err := filepath.Walk(path, walkFunc); err != nil {
-				scanner.PrintError(os.Stderr, err)
-				os.Exit(1)
-			}
+		if !strings.HasSuffix(path, ".go") || skipExp.MatchString(path) {
+			continue
+		}
+
+		var err error
+		switch stat, e := os.Stat(path); {
+		case e != nil:
+			scanner.PrintError(os.Stderr, e)
+		case stat.IsDir():
+			err = filepath.Walk(path, walk)
 		default:
-			if err := process(path, *inPlace); err != nil {
-				scanner.PrintError(os.Stderr, err)
-				os.Exit(1)
-			}
+			err = walk(path, stat, e)
+		}
+
+		if err != nil {
+			scanner.PrintError(os.Stderr, err)
+			os.Exit(1)
 		}
 	}
+
 }
-
-func walkFunc(path string, _ os.FileInfo, err error) error {
-	if err == nil {
-		err = process(path, *inPlace)
-	}
-
+func walk(path string, _ os.FileInfo, err error) error {
 	if err != nil {
 		return err
 	}
-
-	return nil
+	return process(path)
 }
 
-func process(path string, inPlace bool) (err error) {
-	if strings.HasSuffix(path, "_test.go") || strings.Contains(path, "/vendor/") {
-		return
-	}
-	if !strings.HasSuffix(path, ".go") || strings.HasPrefix(path, ".") {
-		return
-	}
+func process(path string) (err error) {
 
 	var file *ast.File
 	if file, err = parser.ParseFile(set, path, nil, parser.ParseComments); err != nil {
 		return
 	}
 
-	if len(file.Comments) == 0 {
-		file.Comments = []*ast.CommentGroup{{List: []*ast.Comment{{Slash: -1, Text: "//"}}}}
+	comments := []*ast.CommentGroup{{List: []*ast.Comment{{Slash: -1, Text: "//"}}}}
+	for _, groups := range file.Comments {
+		if !strings.HasPrefix(groups.Text(), "@name ") {
+			comments = append(comments, groups)
+		}
 	}
-	cmtMap := ast.NewCommentMap(set, file, file.Comments)
-	skipped := make(map[ast.Node]bool)
+
+	funcMap := make(map[token.Pos]*ast.FuncDecl)
 
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch decl := n.(type) {
-		case *ast.DeclStmt:
-			skipped[decl.Decl] = true
+		case *ast.FuncDecl:
+			funcMap[decl.End()] = decl
 		case *ast.GenDecl:
-			applyStructNameTag(decl, skipped, cmtMap)
+			applyStructNameTag(decl, funcMap, &comments)
 		default:
 		}
 		return true
 	})
 
-	file.Comments = cmtMap.Filter(file).Comments()
+	slices.SortFunc(comments, func(a, b *ast.CommentGroup) int {
+		if r := cmp.Compare(a.Pos(), b.Pos()); r != 0 {
+			return r
+		}
+		return cmp.Compare(a.End(), b.End())
+	})
 
-	if file.Comments[0].Pos() == -1 {
-		file.Comments = file.Comments[1:]
+	if comments[0].Pos() == -1 {
+		comments = comments[1:]
 	}
+	file.Comments = comments
 
 	var buf bytes.Buffer
 	if err = format.Node(&buf, set, file); err != nil {
@@ -110,7 +118,7 @@ func process(path string, inPlace bool) (err error) {
 	out = tralingWsRegex.ReplaceAll(out, []byte(""))
 	out = newlinesRegex.ReplaceAll(out, []byte("\n\n"))
 
-	if inPlace {
+	if *inPlace {
 		return os.WriteFile(path, out, defaultMode)
 	}
 
@@ -118,8 +126,8 @@ func process(path string, inPlace bool) (err error) {
 	return
 }
 
-func applyStructNameTag(decl *ast.GenDecl, skipped map[ast.Node]bool, cmtMap ast.CommentMap) {
-	if decl.Tok != token.TYPE {
+func applyStructNameTag(decl *ast.GenDecl, funcMap map[token.Pos]*ast.FuncDecl, comments *[]*ast.CommentGroup) {
+	if decl == nil || decl.Tok != token.TYPE || len(decl.Specs) < 1 {
 		return
 	}
 
@@ -128,56 +136,17 @@ func applyStructNameTag(decl *ast.GenDecl, skipped map[ast.Node]bool, cmtMap ast
 		return
 	}
 
-	if skipped[decl] || !spec.Name.IsExported() {
-		return
+	name := spec.Name.String()
+
+	for _, f := range funcMap {
+		if f.Pos() < decl.Pos() && decl.Pos() < f.End() {
+			name = strcase.ToCamel(f.Name.String() + "_" + name)
+			break
+		}
+
 	}
 
-	addNameTag(decl, spec)
-	if cmtMap == nil {
-		fmt.Println(cmtMap, decl.Doc.Text())
-	}
-	cmtMap[decl] = updateComment(cmtMap[decl], decl.Doc)
-}
-
-func addNameTag(decl *ast.GenDecl, spec *ast.TypeSpec) {
-	name := spec.Name.Name
 	text := fmt.Sprintf("@name %s", name)
-
-	if spec.Comment == nil || !strings.HasPrefix(strings.TrimSpace(spec.Comment.Text()), text) {
-		pos := spec.End()
-		decl.Doc = &ast.CommentGroup{List: []*ast.Comment{{Slash: pos, Text: "//" + text}}}
-		return
-	}
-}
-
-func updateComment(groups []*ast.CommentGroup, doc *ast.CommentGroup) []*ast.CommentGroup {
-	if doc == nil {
-		return groups
-	}
-
-	var ret []*ast.CommentGroup
-	hasInsert := false
-	for _, group := range groups {
-		if group.Pos() < doc.Pos() {
-			ret = append(ret, group)
-			continue
-		}
-		if group.Pos() == doc.Pos() {
-			ret = append(ret, doc)
-			hasInsert = true
-			continue
-		}
-		if group.Pos() > doc.Pos() {
-			if !hasInsert {
-				ret = append(ret, doc)
-				hasInsert = true
-			}
-			ret = append(ret, group)
-			continue
-		}
-	}
-	if !hasInsert {
-		ret = append(ret, doc)
-	}
-	return ret
+	decl.Doc = &ast.CommentGroup{List: []*ast.Comment{{Slash: spec.End(), Text: "//" + text}}}
+	*comments = append(*comments, decl.Doc)
 }
