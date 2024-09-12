@@ -39,10 +39,11 @@ func main() {
 		return
 	}
 
-	skipExp := regexp.MustCompile(`(^\.+)[^/]*|(_test\.go$)|(^.*/vender/.*$)`)
+	skipExp := regexp.MustCompile(`^\.$|_test\.go$|^.*[\\\/]vender[\\\/].*$|^.*[^g][^o]$|^\.+[^\\\/]`)
 	for i := 0; i < flag.NArg(); i++ {
 		path := flag.Arg(i)
-		if !strings.HasSuffix(path, ".go") || skipExp.MatchString(path) {
+		if skipExp.MatchString(path) {
+			_, _ = fmt.Fprintf(os.Stderr, "skipping %v\n", path)
 			continue
 		}
 
