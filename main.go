@@ -27,7 +27,8 @@ var (
 )
 
 var (
-	inPlace = flag.Bool("i", false, "Make in-place editing")
+	inPlace      = flag.Bool("i", false, "Make in-place editing")
+	skipPathExpr = regexp.MustCompile(`^\.$|_test\.go$|^.*[\\\/]vender[\\\/].*$|^.*[^g][^o]$|^\.+[^\\\/]`)
 )
 
 func main() {
@@ -39,13 +40,8 @@ func main() {
 		return
 	}
 
-	skipExp := regexp.MustCompile(`^\.$|_test\.go$|^.*[\\\/]vender[\\\/].*$|^.*[^g][^o]$|^\.+[^\\\/]`)
 	for i := 0; i < flag.NArg(); i++ {
 		path := flag.Arg(i)
-		if skipExp.MatchString(path) {
-			_, _ = fmt.Fprintf(os.Stderr, "skipping %v\n", path)
-			continue
-		}
 
 		var err error
 		switch stat, e := os.Stat(path); {
@@ -65,6 +61,10 @@ func main() {
 
 }
 func walk(path string, _ os.FileInfo, err error) error {
+	if skipPathExpr.MatchString(path) {
+		return nil
+	}
+
 	if err != nil {
 		return err
 	}
