@@ -28,7 +28,7 @@ var (
 
 var (
 	inPlace      = flag.Bool("i", false, "Make in-place editing")
-	skipPathExpr = regexp.MustCompile(`^\.$|_test\.go$|^.*[\\\/]vender[\\\/].*$|^.*[^g][^o]$|^\.+[^\\\/]`)
+	skipPathExpr = regexp.MustCompile(`^\.$|_test\.go$|^.*[\\\/]vender[\\\/].*$|^.*[^g][^o]$|^\.+[^\.\\\/]`)
 )
 
 func main() {
